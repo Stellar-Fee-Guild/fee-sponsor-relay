@@ -33,20 +33,32 @@ export function createServer(deps: ServerDependencies): express.Express {
     const sourceIp = req.ip ?? 'unknown';
 
     if (!rateLimiter.tryConsumeIp(sourceIp)) {
-      return reject(res, logger, {
-        approved: false,
-        reason: 'IP_RATE_LIMITED',
-        detail: 'Too many requests from this IP address.',
-      }, sourceIp, 429);
+      return reject(
+        res,
+        logger,
+        {
+          approved: false,
+          reason: 'IP_RATE_LIMITED',
+          detail: 'Too many requests from this IP address.',
+        },
+        sourceIp,
+        429,
+      );
     }
 
     const { transaction } = req.body ?? {};
     if (typeof transaction !== 'string' || transaction.length === 0) {
-      return reject(res, logger, {
-        approved: false,
-        reason: 'INVALID_TRANSACTION_XDR',
-        detail: 'Request body must include a "transaction" field with a base64 XDR string.',
-      }, sourceIp, 400);
+      return reject(
+        res,
+        logger,
+        {
+          approved: false,
+          reason: 'INVALID_TRANSACTION_XDR',
+          detail: 'Request body must include a "transaction" field with a base64 XDR string.',
+        },
+        sourceIp,
+        400,
+      );
     }
 
     let innerTransaction;
@@ -54,22 +66,34 @@ export function createServer(deps: ServerDependencies): express.Express {
       innerTransaction = parseInnerTransaction(transaction, networkPassphrase);
     } catch (err) {
       const detail = err instanceof InvalidTransactionError ? err.message : 'Invalid transaction.';
-      return reject(res, logger, {
-        approved: false,
-        reason: 'INVALID_TRANSACTION_XDR',
-        detail,
-      }, sourceIp, 400);
+      return reject(
+        res,
+        logger,
+        {
+          approved: false,
+          reason: 'INVALID_TRANSACTION_XDR',
+          detail,
+        },
+        sourceIp,
+        400,
+      );
     }
 
     const sourceAccount = innerTransaction.source;
 
     if (!rateLimiter.tryConsumeAccount(sourceAccount)) {
-      return reject(res, logger, {
-        approved: false,
-        reason: 'ACCOUNT_RATE_LIMITED',
-        sourceAccount,
-        detail: 'Too many sponsorship requests from this account.',
-      }, sourceIp, 429);
+      return reject(
+        res,
+        logger,
+        {
+          approved: false,
+          reason: 'ACCOUNT_RATE_LIMITED',
+          sourceAccount,
+          detail: 'Too many sponsorship requests from this account.',
+        },
+        sourceIp,
+        429,
+      );
     }
 
     const baseFeeStroops = requiredBaseFeeStroops(innerTransaction);
@@ -77,13 +101,19 @@ export function createServer(deps: ServerDependencies): express.Express {
 
     const evaluation = policy.evaluate(sourceAccount, totalCostStroops);
     if (!evaluation.approved) {
-      return reject(res, logger, {
-        approved: false,
-        reason: evaluation.reason,
-        detail: evaluation.detail,
-        sourceAccount,
-        innerFeeStroops: totalCostStroops,
-      }, sourceIp, 403);
+      return reject(
+        res,
+        logger,
+        {
+          approved: false,
+          reason: evaluation.reason,
+          detail: evaluation.detail,
+          sourceAccount,
+          innerFeeStroops: totalCostStroops,
+        },
+        sourceIp,
+        403,
+      );
     }
 
     const feeBumpTransaction = relay.wrapAndSign(innerTransaction, baseFeeStroops);

@@ -81,9 +81,7 @@ function parseLogLevel(value: string | undefined): LogLevel {
   }
   const normalized = value.trim().toLowerCase();
   if (!LOG_LEVELS.includes(normalized as LogLevel)) {
-    throw new ConfigError(
-      `LOG_LEVEL must be one of ${LOG_LEVELS.join(', ')}, got: "${value}"`,
-    );
+    throw new ConfigError(`LOG_LEVEL must be one of ${LOG_LEVELS.join(', ')}, got: "${value}"`);
   }
   return normalized as LogLevel;
 }
