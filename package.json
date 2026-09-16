@@ -1,0 +1,60 @@
+{
+  "name": "fee-sponsor-relay",
+  "version": "0.1.0",
+  "description": "Self-hostable relay for sponsoring Stellar transaction fees via FeeBumpTransaction, with a configurable policy engine and rate limiting built in.",
+  "license": "MIT",
+  "author": "Stellar Fee Guild",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stellar-Fee-Guild/fee-sponsor-relay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Stellar-Fee-Guild/fee-sponsor-relay/issues"
+  },
+  "homepage": "https://github.com/Stellar-Fee-Guild/fee-sponsor-relay#readme",
+  "keywords": [
+    "stellar",
+    "soroban",
+    "feebump",
+    "fee-sponsorship",
+    "gasless"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --coverage --exclude \"test/integration/**\"",
+    "test:integration": "vitest run test/integration"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.3.0",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.2",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.2",
+    "supertest": "^7.0.0",
+    "tsx": "^4.15.6",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
