@@ -4,6 +4,8 @@ import { PolicyEngine } from './policy.js';
 import { RateLimiter } from './rateLimiter.js';
 import { RelayService } from './relay.js';
 import { createServer } from './server.js';
+import { installGracefulShutdown } from './shutdown.js';
+import { createHorizonProbe, runStartupChecks } from './startupChecks.js';
 import { resolveSponsorSecretKey, SponsorAccountManager } from './sponsor.js';
 
 function main(): void {
@@ -26,15 +28,31 @@ function main(): void {
     logger,
     networkPassphrase: config.networkPassphrase,
     sponsorPublicKey: sponsor.publicKey,
+    maxTxValiditySeconds: config.maxTxValiditySeconds,
+    trustProxy: config.trustProxy,
+    corsAllowedOrigins: config.corsAllowedOrigins,
   });
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     logger.info('fee-sponsor-relay listening', {
       port: config.port,
       sponsorPublicKey: sponsor.publicKey,
       horizonUrl: config.horizonUrl,
     });
   });
+
+  installGracefulShutdown({ server, logger });
+
+  if (!config.skipStartupChecks) {
+    // Runs in the background and only logs warnings; never blocks or exits.
+    void runStartupChecks({
+      probe: createHorizonProbe(config.horizonUrl),
+      logger,
+      horizonUrl: config.horizonUrl,
+      networkPassphrase: config.networkPassphrase,
+      sponsorPublicKey: sponsor.publicKey,
+    });
+  }
 }
 
 main();

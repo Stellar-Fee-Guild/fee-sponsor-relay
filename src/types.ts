@@ -37,10 +37,32 @@ export interface RelayConfig {
   port: number;
   logLevel: LogLevel;
   policy: PolicyConfig;
+  /**
+   * Furthest in the future (in seconds) an inner transaction's `maxTime` may
+   * be. Bounds how long a sponsored fee bump stays submittable.
+   */
+  maxTxValiditySeconds: number;
   rateLimiter: RateLimiterConfig;
+  /** Express `trust proxy` setting, or `undefined` to leave it unset (don't trust). */
+  trustProxy: TrustProxySetting | undefined;
+  /** Origins allowed to call the relay from a browser. Empty disables CORS. */
+  corsAllowedOrigins: CorsAllowedOrigins;
+  /** Skip the startup checks against Horizon (used in tests). */
+  skipStartupChecks: boolean;
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/**
+ * Value passed to Express's `trust proxy` setting: `true` (trust every hop),
+ * a hop count, or a list of trusted proxy IPs / CIDRs / Express subnet names
+ * (`loopback`, `linklocal`, `uniquelocal`). `undefined` leaves it unset, so
+ * `req.ip` is the TCP peer address.
+ */
+export type TrustProxySetting = boolean | number | string[];
+
+/** `'*'` allows any origin; a list allows exactly those origins; `[]` disables CORS. */
+export type CorsAllowedOrigins = '*' | string[];
 
 export type SponsorshipRejectionReason =
   | 'DENYLISTED_ACCOUNT'
@@ -60,7 +82,7 @@ export interface PolicyEvaluation {
 }
 
 export interface SponsorshipRequest {
-  /** Unsigned inner transaction XDR submitted by the client. */
+  /** Inner transaction XDR submitted by the client, signed by its source account. */
   innerTransactionXdr: TransactionXdr;
   /** Source IP of the requester, used for IP-based rate limiting. */
   sourceIp: string;

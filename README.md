@@ -13,9 +13,12 @@ audit logging built in.
 - [What is fee sponsorship, and why does it matter?](#what-is-fee-sponsorship-and-why-does-it-matter)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
+- [Calling the relay](#calling-the-relay)
 - [Configuration reference](#configuration-reference)
 - [API reference](#api-reference)
 - [Deployment](#deployment)
+  - [Calling the relay from a browser](#calling-the-relay-from-a-browser)
+  - [Running behind a proxy](#running-behind-a-proxy)
 - [Abuse protection](#abuse-protection)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -38,25 +41,31 @@ sponsor then wraps it, signs the wrapper, and submits it.
 
 **fee-sponsor-relay** is that wrapping step as a standalone, self-hosted
 service: you run it, point it at your own sponsor account, configure who
-and how much it's willing to sponsor, and any client can hand it an unsigned
-inner transaction and get back a submission-ready, fee-bumped one.
+and how much it's willing to sponsor, and any client can hand it an inner
+transaction **signed by its source account** and get back a
+submission-ready, fee-bumped one.
+
+The inner transaction must be fully signed before it reaches the relay: a
+fee bump commits to the inner envelope as-is, so signatures can't be added
+after wrapping. The user signs their own transaction as usual; only the fee
+comes from the sponsor.
 
 ## How it works
 
 ```
-┌────────┐   unsigned inner tx XDR   ┌────────────────────┐
-│ Client │ ───────────────────────▶  │  fee-sponsor-relay  │
-└────────┘                           │                      │
-                                     │  1. rate limit check │
-                                     │  2. policy check     │
-                                     │  3. wrap + sign       │
-                                     └──────────┬───────────┘
-                                                │ signed FeeBumpTransaction XDR
-                                                ▼
-                                        ┌───────────────┐
-                                        │ Client submits │
-                                        │ to Horizon     │
-                                        └───────────────┘
+┌────────┐  inner tx XDR, signed by its   ┌──────────────────────────────┐
+│ Client │  source account                │      fee-sponsor-relay       │
+│        │ ─────────────────────────────▶ │                              │
+└────────┘                                │ 1. per-IP rate limit         │
+    ▲                                     │ 2. validate inner tx (parse, │
+    │                                     │    signed, time bounds)      │
+    │  signed FeeBumpTransaction XDR      │ 3. per-account rate limit    │
+    └──────────────────────────────────── │ 4. policy check              │
+                                          │ 5. wrap + sign as sponsor    │
+                                          └──────────────────────────────┘
+┌────────┐   submit fee bump    ┌─────────┐
+│ Client │ ───────────────────▶ │ Horizon │
+└────────┘                      └─────────┘
 ```
 
 The relay itself never submits transactions on the client's behalf by
@@ -84,9 +93,12 @@ node -e "const k=require('@stellar/stellar-sdk').Keypair.random();console.log('P
 curl "https://friendbot.stellar.org?addr=<PUBLIC_KEY_FROM_ABOVE>"
 ```
 
-Put the secret key in `.env` (`SPONSOR_SECRET_KEY=S...`), then:
+Put the secret key in `.env` (`SPONSOR_SECRET_KEY=S...`). The relay reads
+plain environment variables and doesn't load `.env` by itself, so export the
+file into your shell before starting it:
 
 ```bash
+set -a && . ./.env && set +a
 npm run dev
 ```
 
@@ -95,6 +107,18 @@ The relay listens on `http://localhost:3000`. Try it:
 ```bash
 curl http://localhost:3000/health
 ```
+
+## Calling the relay
+
+Use **[fee-sponsor-client](https://github.com/Stellar-Fee-Guild/fee-sponsor-client)**,
+the TypeScript SDK for this relay. It runs in Node and in browsers, builds
+the request, maps every rejection `reason` to a typed error, and verifies
+each fee bump it receives before you submit it: that it wraps exactly the
+transaction you sent, is paid and signed by the sponsor key, and charges the
+expected fee.
+
+Calling the HTTP API directly works too; see the [API reference](#api-reference).
+For browser apps, also set [`CORS_ALLOWED_ORIGINS`](#calling-the-relay-from-a-browser).
 
 ## Configuration reference
 
@@ -124,6 +148,9 @@ Stellar secret seed.
 | ----------- | ------- | ----------------------------------------------- |
 | `PORT`      | `3000`  | HTTP port the relay listens on.                |
 | `LOG_LEVEL` | `info`  | One of `debug`, `info`, `warn`, `error`.       |
+| `TRUST_PROXY` | (unset) | Express `trust proxy` setting: `true`, a hop count (e.g. `1`), or a comma-separated list of proxy IPs/CIDRs (`loopback`, `linklocal` and `uniquelocal` also work). Unset means don't trust `X-Forwarded-For`. See [Running behind a proxy](#running-behind-a-proxy). |
+| `CORS_ALLOWED_ORIGINS` | (empty) | Origins allowed to call the relay from a browser. Empty sends no CORS headers; `*` allows any origin; otherwise a comma-separated list of exact origins such as `https://app.example.com,http://localhost:5173`. See [Calling the relay from a browser](#calling-the-relay-from-a-browser). |
+| `SKIP_STARTUP_CHECKS` | `false` | Set to `true` to skip the [startup checks](#startup-checks) against Horizon (tests, offline environments). |
 
 ### Policy: allow/deny lists
 
@@ -145,6 +172,21 @@ nominal fee field.
 | `POLICY_HOURLY_CAP_STROOPS_PER_ACCOUNT`   | `5000000`     | Max sponsored per source account in any rolling 1-hour window. |
 | `POLICY_DAILY_CAP_STROOPS_PER_ACCOUNT`    | `20000000`    | Max sponsored per source account in any rolling 24-hour window. |
 
+### Policy: transaction validity window
+
+| Variable                          | Default | Description |
+| --------------------------------- | ------- | ----------- |
+| `POLICY_MAX_TX_VALIDITY_SECONDS`  | `300`   | Furthest in the future an inner transaction's `maxTime` may be, in seconds. |
+
+The sponsor's fee-bump signature stays valid for exactly as long as the inner
+transaction's time bounds allow. Without a limit, a client could hold a
+sponsored fee bump and submit it hours or months later, after you've
+tightened the policy or changed budgets, and the sponsor would still pay.
+Inner transactions with no `maxTime`, a `maxTime` of `0` (an infinite
+timeout) or a `maxTime` further out than this are rejected with
+`INVALID_INNER_TRANSACTION`. Clients should build with
+`TransactionBuilder.setTimeout(n)` where `n` is at most this value.
+
 ### Rate limiting
 
 | Variable                             | Default | Description                                   |
@@ -156,14 +198,28 @@ nominal fee field.
 
 ### `POST /sponsor`
 
-Validates an unsigned inner transaction against policy and rate limits,
-wraps it in a `FeeBumpTransaction`, signs it with the sponsor key, and
-returns the signed XDR. The relay does **not** submit it to Horizon.
+Takes an inner transaction signed by its source account, checks it against
+rate limits and policy, wraps it in a `FeeBumpTransaction`, signs that with
+the sponsor key, and returns the signed XDR. The relay does **not** submit
+it to Horizon; the client does.
 
-**Request body**
+The inner transaction must:
+
+- parse as a plain transaction for this relay's `NETWORK_PASSPHRASE` (not a
+  fee bump);
+- have at least one operation;
+- be signed. If it carries a signature from the source account's key, that
+  signature must verify on this network (a mismatch usually means it was
+  signed for another network). Other signers (multisig) are checked by the
+  network on submission;
+- have a `maxTime` no more than `POLICY_MAX_TX_VALIDITY_SECONDS` (default
+  300) in the future, e.g. `TransactionBuilder.setTimeout(60)`. No `maxTime`
+  or `maxTime: 0` (an infinite timeout) is rejected.
+
+**Request body** (`Content-Type: application/json`, at most 64 KB)
 
 ```json
-{ "transaction": "<base64 unsigned inner transaction XDR>" }
+{ "transaction": "<base64 inner transaction envelope XDR, signed by its source account>" }
 ```
 
 **Success response** — `200 OK`
@@ -177,7 +233,14 @@ returns the signed XDR. The relay does **not** submit it to Horizon.
 }
 ```
 
-**Rejection response** — `400`/`403`/`429` depending on the reason
+| Field                   | Meaning |
+| ----------------------- | ------- |
+| `approved`              | `true` on success. |
+| `sourceAccount`         | The inner transaction's source account (`G...`, or `M...` for a muxed account). |
+| `innerFeeStroops`       | **The total fee the sponsor pays**, in stroops: `baseFee * (innerOperationCount + 1)`, where `baseFee` is the inner transaction's per-operation fee (`ceil(innerFee / innerOperationCount)`) and the `+ 1` is the fee-bump wrapper. Despite its name, this is *not* the inner transaction's own `fee` field. It's the amount checked against the policy limits. The name is kept for compatibility. |
+| `feeBumpTransactionXdr` | The fee bump, signed by the sponsor, ready to submit to Horizon. |
+
+**Rejection response** — `400`/`403`/`413`/`429` depending on the reason
 
 ```json
 {
@@ -189,23 +252,38 @@ returns the signed XDR. The relay does **not** submit it to Horizon.
 }
 ```
 
-| `reason`                     | HTTP status | Meaning                                                        |
-| ------------------------------ | ------------- | ------------------------------------------------------------------ |
-| `INVALID_TRANSACTION_XDR`    | 400         | Missing/malformed `transaction`, or it's already a fee-bump tx. |
-| `DENYLISTED_ACCOUNT`         | 403         | Source account is on the denylist.                            |
-| `NOT_ALLOWLISTED`            | 403         | Allowlist is non-empty and the account isn't on it.            |
-| `FEE_EXCEEDS_MAX`            | 403         | Sponsor cost exceeds `POLICY_MAX_FEE_STROOPS_PER_TX`.          |
-| `HOURLY_CAP_EXCEEDED`        | 403         | Would exceed the account's rolling hourly cap.                |
-| `DAILY_CAP_EXCEEDED`         | 403         | Would exceed the account's rolling daily cap.                  |
-| `ACCOUNT_RATE_LIMITED`       | 429         | Too many requests from this source account this minute.       |
-| `IP_RATE_LIMITED`            | 429         | Too many requests from this source IP this minute.            |
+`sourceAccount` and `innerFeeStroops` are only present once the transaction
+has been parsed (and, for `innerFeeStroops`, only for policy rejections).
+`detail` is a human-readable explanation; match on `reason`, not `detail`.
+
+| `reason`                    | HTTP status | Meaning |
+| --------------------------- | ----------- | ------- |
+| `INVALID_TRANSACTION_XDR`   | 400         | Body isn't valid JSON, `transaction` is missing or not a string, the XDR doesn't parse, or it's already a fee-bump transaction. |
+| `INVALID_TRANSACTION_XDR`   | 413         | Request body is larger than 64 KB. |
+| `INVALID_INNER_TRANSACTION` | 400         | The transaction parses but can't be sponsored: it has no operations, has no signatures, has a source-account signature that doesn't verify on this network, or its `maxTime` is missing, `0`, or more than `POLICY_MAX_TX_VALIDITY_SECONDS` in the future. |
+| `DENYLISTED_ACCOUNT`        | 403         | Source account is on the denylist. |
+| `NOT_ALLOWLISTED`           | 403         | Allowlist is non-empty and the account isn't on it. |
+| `FEE_EXCEEDS_MAX`           | 403         | Sponsor cost exceeds `POLICY_MAX_FEE_STROOPS_PER_TX`. |
+| `HOURLY_CAP_EXCEEDED`       | 403         | Would exceed the account's rolling hourly cap. |
+| `DAILY_CAP_EXCEEDED`        | 403         | Would exceed the account's rolling daily cap. |
+| `ACCOUNT_RATE_LIMITED`      | 429         | Too many requests from this source account this minute. |
+| `IP_RATE_LIMITED`           | 429         | Too many requests from this source IP this minute. |
 
 Every decision (approved or rejected) is written to the structured log via
 `sponsorshipDecision`, for auditability.
 
+### Other errors
+
+All responses are JSON, including errors that aren't sponsorship decisions:
+
+| Status | Body | When |
+| ------ | ---- | ---- |
+| `404`  | `{ "error": "Not found" }` | Unknown route or method (e.g. `GET /sponsor`). |
+| `500`  | `{ "error": "Internal server error" }` | Unexpected server error. Details are logged at `error` level, never returned. |
+
 ### `GET /health`
 
-Liveness/readiness probe.
+Liveness probe. Reports that the process is up; it doesn't contact Horizon.
 
 ```json
 { "status": "ok", "sponsorPublicKey": "GABC..." }
@@ -227,6 +305,32 @@ appears in `docker inspect` output or the container's environment listing.
 Override any policy/rate-limit variable via a `.env` file next to
 `docker-compose.yml` (see `.env.example`).
 
+### Startup checks
+
+Right after it starts listening, the relay checks its configuration against
+Horizon and logs a `startup_check_failed` warning (it never exits) if:
+
+- Horizon's root endpoint reports a `network_passphrase` different from
+  `NETWORK_PASSPHRASE`. Every sponsored transaction would fail.
+- The sponsor account can't be loaded: it is unfunded, or `HORIZON_URL` /
+  `NETWORK_PASSPHRASE` point at the wrong network.
+- Horizon can't be reached.
+
+When everything checks out it logs `sponsor_account_loaded` (with the
+sponsor's XLM balance) and `startup_checks_passed`. Set
+`SKIP_STARTUP_CHECKS=true` to turn the checks off.
+
+### Graceful shutdown
+
+On `SIGTERM` or `SIGINT` (sent by Docker, Kubernetes and most platforms on
+every deploy) the relay stops accepting new connections, lets in-flight
+requests finish, logs `shutdown_started` / `shutdown_complete` and exits
+`0`. If requests are still running after 10 seconds it closes the remaining
+connections, logs `shutdown_timeout` and exits `1`. Make your platform's
+grace period a bit longer than 10 seconds (`stop_grace_period: 15s` is
+already set in `docker-compose.yml`; Kubernetes' default
+`terminationGracePeriodSeconds` of 30 is fine).
+
 ### Bare metal / systemd / PaaS
 
 ```bash
@@ -241,11 +345,60 @@ Secret, Vault, AWS Secrets Manager, etc.) mounted as a file, and set
 `SPONSOR_SECRET_KEY_FILE` rather than putting the raw key in an env var if
 your platform lets you avoid it.
 
+### Calling the relay from a browser
+
+By default the relay sends no CORS headers, so browsers block calls from web
+pages on other origins (server-side callers are unaffected). To let a web
+app call the relay directly, list its origin(s):
+
+```bash
+CORS_ALLOWED_ORIGINS=https://app.example.com,http://localhost:5173
+```
+
+- Allowed origins get `Access-Control-Allow-Origin` on every response,
+  including rejections and errors, so the browser can read the `reason`.
+- `OPTIONS /sponsor` preflights are answered with `204`, allowing `POST`
+  and the `Content-Type` header (cached by browsers for 10 minutes).
+- Origins must match exactly: scheme, host and port, no path.
+- `CORS_ALLOWED_ORIGINS=*` allows any site to use your sponsor. Only do
+  that on testnet or with a tight policy, since CORS is not access control:
+  non-browser clients can always call the relay.
+
+### Running behind a proxy
+
+Per-IP rate limiting uses Express's `req.ip`. When the relay runs behind a
+reverse proxy or load balancer (Render, Fly.io, Heroku, a Kubernetes
+ingress, nginx, Cloudflare...), the TCP connection comes from the proxy, so
+without extra configuration **every user shares the proxy's IP and one
+rate-limit bucket**: a single busy client can lock everyone else out.
+
+Set `TRUST_PROXY` so Express reads the client IP from `X-Forwarded-For`:
+
+| Setup | `TRUST_PROXY` |
+| ----- | ------------- |
+| Relay exposed directly (no proxy), including plain `docker compose up` | leave unset |
+| One proxy / load balancer in front (most PaaS platforms) | `1` |
+| Several known hops (e.g. CDN + ingress) | the number of hops, e.g. `2` |
+| Proxies with known private addresses | their IPs/CIDRs, e.g. `10.0.0.0/8` or `uniquelocal` |
+
+Prefer a hop count or an address list over `true`: `true` trusts the
+left-most `X-Forwarded-For` entry, which the client controls unless your
+proxy overwrites the header.
+
+> **Warning:** don't set `TRUST_PROXY` when nothing sits in front of the
+> relay. Clients could then send their own `X-Forwarded-For` header, pick any
+> IP they like, and bypass the per-IP rate limit entirely.
+
 ## Abuse protection
 
 - **Rate limiting** (`src/rateLimiter.ts`) - independent per-source-account
-  and per-source-IP limits, checked before any policy or transaction
-  parsing work happens.
+  and per-source-IP limits. The per-IP check runs before the transaction is
+  parsed.
+  Behind a proxy, set [`TRUST_PROXY`](#running-behind-a-proxy) or every user
+  shares one IP bucket.
+- **Input validation** (`src/relay.ts`) - unsigned, empty, wrong-network and
+  long-lived inner transactions are rejected before the sponsor signs
+  anything, so a sponsored fee bump can't be held and submitted much later.
 - **Policy engine** (`src/policy.ts`) - allow/deny lists, a max sponsored
   fee per transaction, and rolling hourly/daily sponsorship caps per
   account.

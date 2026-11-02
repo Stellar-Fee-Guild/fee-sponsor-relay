@@ -1,6 +1,17 @@
-import { BASE_FEE, FeeBumpTransaction, Keypair, Networks } from '@stellar/stellar-sdk';
+import {
+  Account,
+  BASE_FEE,
+  FeeBumpTransaction,
+  Keypair,
+  MuxedAccount,
+  Networks,
+  Operation,
+  TransactionBuilder,
+} from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 import {
+  assertValidityWindow,
+  InvalidInnerTransactionError,
   InvalidTransactionError,
   parseInnerTransaction,
   RelayService,
@@ -47,6 +58,126 @@ describe('parseInnerTransaction', () => {
 
     expect(() => parseInnerTransaction(feeBump.toXDR(), NETWORK_PASSPHRASE)).toThrow(
       InvalidTransactionError,
+    );
+  });
+});
+
+describe('parseInnerTransaction: inner transaction checks', () => {
+  it('throws InvalidInnerTransactionError (not InvalidTransactionError) for an unsigned transaction', () => {
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      sign: false,
+    });
+    const parse = () => parseInnerTransaction(inner.toXDR(), NETWORK_PASSPHRASE);
+    expect(parse).toThrow(InvalidInnerTransactionError);
+    expect(parse).toThrow(/not signed/);
+    expect(parse).not.toThrow(InvalidTransactionError);
+  });
+
+  it('throws InvalidInnerTransactionError for a transaction with no operations', () => {
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      numOperations: 0,
+    });
+    expect(() => parseInnerTransaction(inner.toXDR(), NETWORK_PASSPHRASE)).toThrow(/no operations/);
+    expect(() => parseInnerTransaction(inner.toXDR(), NETWORK_PASSPHRASE)).toThrow(
+      InvalidInnerTransactionError,
+    );
+  });
+
+  it('rejects a transaction whose source signature was made for a different network', () => {
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: Networks.PUBLIC,
+    });
+    const parse = () => parseInnerTransaction(inner.toXDR(), NETWORK_PASSPHRASE);
+    expect(parse).toThrow(InvalidInnerTransactionError);
+    expect(parse).toThrow(/different network/);
+  });
+
+  it('accepts a transaction signed only by a key other than the source (multisig)', () => {
+    const source = Keypair.random();
+    const inner = buildInnerTransaction({
+      sourceKeypair: source,
+      networkPassphrase: NETWORK_PASSPHRASE,
+      sign: false,
+    });
+    inner.sign(Keypair.random());
+    expect(parseInnerTransaction(inner.toXDR(), NETWORK_PASSPHRASE).source).toBe(
+      source.publicKey(),
+    );
+  });
+
+  it('accepts a valid signature alongside an extra signature from another key', () => {
+    const source = Keypair.random();
+    const inner = buildInnerTransaction({
+      sourceKeypair: source,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    });
+    inner.sign(Keypair.random());
+    expect(parseInnerTransaction(inner.toXDR(), NETWORK_PASSPHRASE).signatures).toHaveLength(2);
+  });
+
+  it('verifies the signature of a muxed (M...) source account against its base key', () => {
+    const source = Keypair.random();
+    const muxed = new MuxedAccount(new Account(source.publicKey(), '1'), '42');
+    const build = (passphrase: string) => {
+      const tx = new TransactionBuilder(muxed, { fee: BASE_FEE, networkPassphrase: passphrase })
+        .addOperation(Operation.bumpSequence({ bumpTo: '10' }))
+        .setTimeout(60)
+        .build();
+      tx.sign(source);
+      return tx;
+    };
+
+    const parsed = parseInnerTransaction(build(NETWORK_PASSPHRASE).toXDR(), NETWORK_PASSPHRASE);
+    expect(parsed.source.startsWith('M')).toBe(true);
+
+    expect(() => parseInnerTransaction(build(Networks.PUBLIC).toXDR(), NETWORK_PASSPHRASE)).toThrow(
+      InvalidInnerTransactionError,
+    );
+  });
+});
+
+describe('assertValidityWindow', () => {
+  const source = Keypair.random();
+  const build = (opts: { timeoutSeconds?: number; omitTimeBounds?: boolean }) =>
+    buildInnerTransaction({
+      sourceKeypair: source,
+      networkPassphrase: NETWORK_PASSPHRASE,
+      ...opts,
+    });
+
+  it('accepts a maxTime within the window', () => {
+    expect(() => assertValidityWindow(build({ timeoutSeconds: 60 }), 300)).not.toThrow();
+  });
+
+  it('accepts a maxTime exactly at the edge of the window', () => {
+    const tx = build({ timeoutSeconds: 300 });
+    const maxTime = Number(tx.timeBounds?.maxTime);
+    expect(() => assertValidityWindow(tx, 300, (maxTime - 300) * 1000)).not.toThrow();
+    expect(() => assertValidityWindow(tx, 300, (maxTime - 301) * 1000)).toThrow(
+      InvalidInnerTransactionError,
+    );
+  });
+
+  it('rejects a maxTime of 0 (infinite timeout)', () => {
+    expect(() => assertValidityWindow(build({ timeoutSeconds: 0 }), 300)).toThrow(
+      /no upper time bound/,
+    );
+  });
+
+  it('rejects a transaction with no time bounds at all', () => {
+    const tx = build({ omitTimeBounds: true });
+    expect(tx.timeBounds).toBeUndefined();
+    expect(() => assertValidityWindow(tx, 300)).toThrow(InvalidInnerTransactionError);
+  });
+
+  it('rejects a maxTime further in the future than the window', () => {
+    expect(() => assertValidityWindow(build({ timeoutSeconds: 3600 }), 300)).toThrow(
+      /more than 300 seconds in the future/,
     );
   });
 });

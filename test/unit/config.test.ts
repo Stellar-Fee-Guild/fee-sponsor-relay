@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from '../../src/config.js';
+import {
+  ConfigError,
+  loadConfig,
+  parseCorsAllowedOrigins,
+  parseTrustProxy,
+} from '../../src/config.js';
 
 describe('loadConfig', () => {
   it('applies documented defaults when no env vars are set', () => {
@@ -12,6 +17,33 @@ describe('loadConfig', () => {
     expect(config.policy.denylist).toEqual([]);
     expect(config.rateLimiter.perAccountPerMinute).toBe(10);
     expect(config.rateLimiter.perIpPerMinute).toBe(30);
+    expect(config.maxTxValiditySeconds).toBe(300);
+    expect(config.trustProxy).toBeUndefined();
+    expect(config.corsAllowedOrigins).toEqual([]);
+    expect(config.skipStartupChecks).toBe(false);
+  });
+
+  it('parses SKIP_STARTUP_CHECKS', () => {
+    const parse = (value: string) =>
+      loadConfig({ SKIP_STARTUP_CHECKS: value } as NodeJS.ProcessEnv).skipStartupChecks;
+    expect(parse('true')).toBe(true);
+    expect(parse('TRUE')).toBe(true);
+    expect(parse('1')).toBe(true);
+    expect(parse('false')).toBe(false);
+    expect(parse('0')).toBe(false);
+    expect(parse('')).toBe(false);
+    expect(() => parse('yes please')).toThrow(/SKIP_STARTUP_CHECKS must be "true" or "false"/);
+  });
+
+  it('parses POLICY_MAX_TX_VALIDITY_SECONDS', () => {
+    const config = loadConfig({ POLICY_MAX_TX_VALIDITY_SECONDS: '60' } as NodeJS.ProcessEnv);
+    expect(config.maxTxValiditySeconds).toBe(60);
+  });
+
+  it('rejects a non-positive POLICY_MAX_TX_VALIDITY_SECONDS', () => {
+    expect(() => loadConfig({ POLICY_MAX_TX_VALIDITY_SECONDS: '0' } as NodeJS.ProcessEnv)).toThrow(
+      /POLICY_MAX_TX_VALIDITY_SECONDS must be a positive integer/,
+    );
   });
 
   it('parses comma-separated allow/deny lists, trimming whitespace', () => {
@@ -48,5 +80,83 @@ describe('loadConfig', () => {
   it('accepts a valid LOG_LEVEL case-insensitively', () => {
     const config = loadConfig({ LOG_LEVEL: 'WARN' } as NodeJS.ProcessEnv);
     expect(config.logLevel).toBe('warn');
+  });
+});
+
+describe('TRUST_PROXY', () => {
+  it('is undefined (do not trust) when unset or blank', () => {
+    expect(parseTrustProxy(undefined)).toBeUndefined();
+    expect(parseTrustProxy('   ')).toBeUndefined();
+  });
+
+  it('parses true / false case-insensitively', () => {
+    expect(parseTrustProxy('true')).toBe(true);
+    expect(parseTrustProxy('TRUE')).toBe(true);
+    expect(parseTrustProxy('false')).toBe(false);
+  });
+
+  it('parses a hop count', () => {
+    expect(parseTrustProxy('1')).toBe(1);
+    expect(parseTrustProxy('0')).toBe(0);
+  });
+
+  it('parses a comma-separated list of IPs, CIDRs and subnet names', () => {
+    expect(parseTrustProxy('10.0.0.1, 10.0.0.0/8 ,fd00::/8,::1,loopback')).toEqual([
+      '10.0.0.1',
+      '10.0.0.0/8',
+      'fd00::/8',
+      '::1',
+      'loopback',
+    ]);
+  });
+
+  it.each(['yes', '10.0.0.0/33', 'fd00::/129', '10.0.0.1/abc', '10.0.0.1/8/8', '1.2.3', '-1'])(
+    'rejects invalid value %s with a ConfigError naming TRUST_PROXY',
+    (value) => {
+      expect(() => parseTrustProxy(value)).toThrow(ConfigError);
+      expect(() => parseTrustProxy(value)).toThrow(/TRUST_PROXY/);
+    },
+  );
+
+  it('is wired through loadConfig', () => {
+    expect(loadConfig({ TRUST_PROXY: '2' } as NodeJS.ProcessEnv).trustProxy).toBe(2);
+  });
+});
+
+describe('CORS_ALLOWED_ORIGINS', () => {
+  it('is disabled ([]) when unset or blank', () => {
+    expect(parseCorsAllowedOrigins(undefined)).toEqual([]);
+    expect(parseCorsAllowedOrigins(' ')).toEqual([]);
+  });
+
+  it('parses "*" as allow-all', () => {
+    expect(parseCorsAllowedOrigins(' * ')).toBe('*');
+  });
+
+  it('parses a list of origins, trimming whitespace and a trailing slash', () => {
+    expect(parseCorsAllowedOrigins('https://app.example.com, http://localhost:5173/')).toEqual([
+      'https://app.example.com',
+      'http://localhost:5173',
+    ]);
+  });
+
+  it.each([
+    'app.example.com',
+    'https://app.example.com/path',
+    'ftp://example.com',
+    'https://app.example.com?x=1',
+    'not a url',
+  ])('rejects invalid origin %s', (value) => {
+    expect(() => parseCorsAllowedOrigins(value)).toThrow(/CORS_ALLOWED_ORIGINS/);
+  });
+
+  it('rejects "*" combined with other origins', () => {
+    expect(() => parseCorsAllowedOrigins('*,https://a.example')).toThrow(ConfigError);
+  });
+
+  it('is wired through loadConfig', () => {
+    expect(loadConfig({ CORS_ALLOWED_ORIGINS: '*' } as NodeJS.ProcessEnv).corsAllowedOrigins).toBe(
+      '*',
+    );
   });
 });
