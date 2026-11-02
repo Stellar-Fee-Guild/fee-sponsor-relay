@@ -1,6 +1,6 @@
 import { DEFAULT_MAX_TX_VALIDITY_SECONDS } from './relay.js';
 import { isIP } from 'node:net';
-import type { LogLevel, RelayConfig, TrustProxySetting } from './types.js';
+import type { CorsAllowedOrigins, LogLevel, RelayConfig, TrustProxySetting } from './types.js';
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 
@@ -45,6 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
       'POLICY_MAX_TX_VALIDITY_SECONDS',
     ),
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
+    corsAllowedOrigins: parseCorsAllowedOrigins(env.CORS_ALLOWED_ORIGINS),
     rateLimiter: {
       perAccountPerMinute: parsePositiveInt(
         env.RATE_LIMIT_PER_ACCOUNT_PER_MINUTE,
@@ -148,4 +149,39 @@ function isTrustProxyEntry(entry: string): boolean {
     return false;
   }
   return Number(prefix) <= (family === 4 ? 32 : 128);
+}
+
+/**
+ * Parses `CORS_ALLOWED_ORIGINS`: empty disables CORS, `*` allows any origin,
+ * otherwise a comma-separated list of exact origins such as
+ * `https://app.example.com` (scheme, host and optional port; no path). A
+ * single trailing slash is tolerated and removed.
+ */
+export function parseCorsAllowedOrigins(value: string | undefined): CorsAllowedOrigins {
+  const entries = parseList(value);
+  if (entries.length === 1 && entries[0] === '*') {
+    return '*';
+  }
+  return entries.map((entry) => {
+    if (entry === '*') {
+      throw new ConfigError('CORS_ALLOWED_ORIGINS: "*" cannot be combined with other origins');
+    }
+    const origin = entry.endsWith('/') ? entry.slice(0, -1) : entry;
+    if (!isOrigin(origin)) {
+      throw new ConfigError(
+        'CORS_ALLOWED_ORIGINS must be empty, "*", or a comma-separated list of origins like ' +
+          `"https://app.example.com" (no path); invalid entry: "${entry}"`,
+      );
+    }
+    return origin;
+  });
+}
+
+function isOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin === value;
+  } catch {
+    return false;
+  }
 }

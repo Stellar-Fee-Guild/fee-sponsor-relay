@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig, parseTrustProxy } from '../../src/config.js';
+import {
+  ConfigError,
+  loadConfig,
+  parseCorsAllowedOrigins,
+  parseTrustProxy,
+} from '../../src/config.js';
 
 describe('loadConfig', () => {
   it('applies documented defaults when no env vars are set', () => {
@@ -14,6 +19,7 @@ describe('loadConfig', () => {
     expect(config.rateLimiter.perIpPerMinute).toBe(30);
     expect(config.maxTxValiditySeconds).toBe(300);
     expect(config.trustProxy).toBeUndefined();
+    expect(config.corsAllowedOrigins).toEqual([]);
   });
 
   it('parses POLICY_MAX_TX_VALIDITY_SECONDS', () => {
@@ -101,5 +107,43 @@ describe('TRUST_PROXY', () => {
 
   it('is wired through loadConfig', () => {
     expect(loadConfig({ TRUST_PROXY: '2' } as NodeJS.ProcessEnv).trustProxy).toBe(2);
+  });
+});
+
+describe('CORS_ALLOWED_ORIGINS', () => {
+  it('is disabled ([]) when unset or blank', () => {
+    expect(parseCorsAllowedOrigins(undefined)).toEqual([]);
+    expect(parseCorsAllowedOrigins(' ')).toEqual([]);
+  });
+
+  it('parses "*" as allow-all', () => {
+    expect(parseCorsAllowedOrigins(' * ')).toBe('*');
+  });
+
+  it('parses a list of origins, trimming whitespace and a trailing slash', () => {
+    expect(parseCorsAllowedOrigins('https://app.example.com, http://localhost:5173/')).toEqual([
+      'https://app.example.com',
+      'http://localhost:5173',
+    ]);
+  });
+
+  it.each([
+    'app.example.com',
+    'https://app.example.com/path',
+    'ftp://example.com',
+    'https://app.example.com?x=1',
+    'not a url',
+  ])('rejects invalid origin %s', (value) => {
+    expect(() => parseCorsAllowedOrigins(value)).toThrow(/CORS_ALLOWED_ORIGINS/);
+  });
+
+  it('rejects "*" combined with other origins', () => {
+    expect(() => parseCorsAllowedOrigins('*,https://a.example')).toThrow(ConfigError);
+  });
+
+  it('is wired through loadConfig', () => {
+    expect(loadConfig({ CORS_ALLOWED_ORIGINS: '*' } as NodeJS.ProcessEnv).corsAllowedOrigins).toBe(
+      '*',
+    );
   });
 });

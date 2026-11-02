@@ -28,6 +28,7 @@ function main(): void {
     sponsorPublicKey: sponsor.publicKey,
     maxTxValiditySeconds: config.maxTxValiditySeconds,
     trustProxy: config.trustProxy,
+    corsAllowedOrigins: config.corsAllowedOrigins,
   });
 
   app.listen(config.port, () => {

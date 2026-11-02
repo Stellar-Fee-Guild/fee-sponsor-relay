@@ -125,6 +125,7 @@ Stellar secret seed.
 | `PORT`      | `3000`  | HTTP port the relay listens on.                |
 | `LOG_LEVEL` | `info`  | One of `debug`, `info`, `warn`, `error`.       |
 | `TRUST_PROXY` | (unset) | Express `trust proxy` setting: `true`, a hop count (e.g. `1`), or a comma-separated list of proxy IPs/CIDRs (`loopback`, `linklocal` and `uniquelocal` also work). Unset means don't trust `X-Forwarded-For`. See [Running behind a proxy](#running-behind-a-proxy). |
+| `CORS_ALLOWED_ORIGINS` | (empty) | Origins allowed to call the relay from a browser. Empty sends no CORS headers; `*` allows any origin; otherwise a comma-separated list of exact origins such as `https://app.example.com,http://localhost:5173`. See [Calling the relay from a browser](#calling-the-relay-from-a-browser). |
 
 ### Policy: allow/deny lists
 
@@ -256,6 +257,25 @@ credential: inject it via your platform's secret manager (Kubernetes
 Secret, Vault, AWS Secrets Manager, etc.) mounted as a file, and set
 `SPONSOR_SECRET_KEY_FILE` rather than putting the raw key in an env var if
 your platform lets you avoid it.
+
+### Calling the relay from a browser
+
+By default the relay sends no CORS headers, so browsers block calls from web
+pages on other origins (server-side callers are unaffected). To let a web
+app call the relay directly, list its origin(s):
+
+```bash
+CORS_ALLOWED_ORIGINS=https://app.example.com,http://localhost:5173
+```
+
+- Allowed origins get `Access-Control-Allow-Origin` on every response,
+  including rejections and errors, so the browser can read the `reason`.
+- `OPTIONS /sponsor` preflights are answered with `204`, allowing `POST`
+  and the `Content-Type` header (cached by browsers for 10 minutes).
+- Origins must match exactly: scheme, host and port, no path.
+- `CORS_ALLOWED_ORIGINS=*` allows any site to use your sponsor. Only do
+  that on testnet or with a tight policy, since CORS is not access control:
+  non-browser clients can always call the relay.
 
 ### Running behind a proxy
 

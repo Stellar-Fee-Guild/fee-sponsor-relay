@@ -8,7 +8,7 @@ import { RateLimiter } from '../../src/rateLimiter.js';
 import { RelayService } from '../../src/relay.js';
 import { createServer } from '../../src/server.js';
 import { SponsorAccountManager } from '../../src/sponsor.js';
-import type { PolicyConfig, TrustProxySetting } from '../../src/types.js';
+import type { CorsAllowedOrigins, PolicyConfig, TrustProxySetting } from '../../src/types.js';
 import { buildInnerTransaction } from '../helpers/buildInnerTransaction.js';
 
 const NETWORK_PASSPHRASE = Networks.TESTNET;
@@ -17,6 +17,7 @@ function makeApp(
   overrides: {
     maxTxValiditySeconds?: number;
     trustProxy?: TrustProxySetting;
+    corsAllowedOrigins?: CorsAllowedOrigins;
     policy?: Partial<PolicyConfig>;
     rateLimiter?: { perAccountPerMinute: number; perIpPerMinute: number };
   } = {},
@@ -50,6 +51,7 @@ function makeApp(
     sponsorPublicKey: sponsor.publicKey(),
     maxTxValiditySeconds: overrides.maxTxValiditySeconds,
     trustProxy: overrides.trustProxy,
+    corsAllowedOrigins: overrides.corsAllowedOrigins,
   });
 
   return { app, sponsor };
@@ -302,5 +304,45 @@ describe('trust proxy', () => {
     const { app } = makeApp({ rateLimiter: ipLimited, trustProxy: ['loopback'] });
     expect((await sponsorFrom(app, '203.0.113.1')).status).toBe(200);
     expect((await sponsorFrom(app, '203.0.113.2')).status).toBe(200);
+  });
+});
+
+describe('CORS', () => {
+  const origin = 'https://app.example.com';
+
+  it('sends no CORS headers by default', async () => {
+    const { app } = makeApp();
+    const res = await request(app).get('/health').set('Origin', origin);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('handles the /sponsor preflight and tags responses for allowed origins', async () => {
+    const { app } = makeApp({ corsAllowedOrigins: [origin] });
+
+    const preflight = await request(app)
+      .options('/sponsor')
+      .set('Origin', origin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type');
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers['access-control-allow-origin']).toBe(origin);
+
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+    });
+    const res = await request(app)
+      .post('/sponsor')
+      .set('Origin', origin)
+      .send({ transaction: inner.toXDR() });
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe(origin);
+  });
+
+  it('adds CORS headers to rejections too, so browsers can read the reason', async () => {
+    const { app } = makeApp({ corsAllowedOrigins: '*' });
+    const res = await request(app).post('/sponsor').set('Origin', origin).send({});
+    expect(res.status).toBe(400);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
   });
 });

@@ -45,6 +45,8 @@ export interface RelayConfig {
   rateLimiter: RateLimiterConfig;
   /** Express `trust proxy` setting, or `undefined` to leave it unset (don't trust). */
   trustProxy: TrustProxySetting | undefined;
+  /** Origins allowed to call the relay from a browser. Empty disables CORS. */
+  corsAllowedOrigins: CorsAllowedOrigins;
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -56,6 +58,9 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
  * `req.ip` is the TCP peer address.
  */
 export type TrustProxySetting = boolean | number | string[];
+
+/** `'*'` allows any origin; a list allows exactly those origins; `[]` disables CORS. */
+export type CorsAllowedOrigins = '*' | string[];
 
 export type SponsorshipRejectionReason =
   | 'DENYLISTED_ACCOUNT'

@@ -1,4 +1,5 @@
 import express, { type Request, type Response } from 'express';
+import { corsHeaders, corsPreflight, isCorsEnabled } from './cors.js';
 import type { Logger } from './logger.js';
 import type { PolicyEngine } from './policy.js';
 import type { RateLimiter } from './rateLimiter.js';
@@ -12,7 +13,7 @@ import {
   sponsorCostStroops,
   type RelayService,
 } from './relay.js';
-import type { SponsorshipDecision, TrustProxySetting } from './types.js';
+import type { CorsAllowedOrigins, SponsorshipDecision, TrustProxySetting } from './types.js';
 
 export interface ServerDependencies {
   relay: RelayService;
@@ -32,6 +33,8 @@ export interface ServerDependencies {
    * their IP with `X-Forwarded-For`.
    */
   trustProxy?: TrustProxySetting;
+  /** Origins allowed to call the relay from a browser. Default `[]` (no CORS headers). */
+  corsAllowedOrigins?: CorsAllowedOrigins;
 }
 
 export function createServer(deps: ServerDependencies): express.Express {
@@ -41,6 +44,15 @@ export function createServer(deps: ServerDependencies): express.Express {
   if (deps.trustProxy !== undefined) {
     app.set('trust proxy', deps.trustProxy);
   }
+
+  // CORS runs before body parsing so error responses also carry the headers
+  // and browsers can read them.
+  const corsAllowedOrigins = deps.corsAllowedOrigins ?? [];
+  if (isCorsEnabled(corsAllowedOrigins)) {
+    app.use(corsHeaders(corsAllowedOrigins));
+    app.options('/sponsor', corsPreflight(corsAllowedOrigins));
+  }
+
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', (_req: Request, res: Response) => {

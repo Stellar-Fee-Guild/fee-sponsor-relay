@@ -11,6 +11,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Only set when a reverse proxy sits in front of this container.
       TRUST_PROXY: ${TRUST_PROXY:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       # Prefer mounting the secret as a file (see the `secrets/` volume
       # below) over passing SPONSOR_SECRET_KEY directly as an env var.
       SPONSOR_SECRET_KEY_FILE: /run/secrets/sponsor_secret_key
