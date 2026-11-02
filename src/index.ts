@@ -4,6 +4,7 @@ import { PolicyEngine } from './policy.js';
 import { RateLimiter } from './rateLimiter.js';
 import { RelayService } from './relay.js';
 import { createServer } from './server.js';
+import { installGracefulShutdown } from './shutdown.js';
 import { resolveSponsorSecretKey, SponsorAccountManager } from './sponsor.js';
 
 function main(): void {
@@ -31,13 +32,15 @@ function main(): void {
     corsAllowedOrigins: config.corsAllowedOrigins,
   });
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     logger.info('fee-sponsor-relay listening', {
       port: config.port,
       sponsorPublicKey: sponsor.publicKey,
       horizonUrl: config.horizonUrl,
     });
   });
+
+  installGracefulShutdown({ server, logger });
 }
 
 main();

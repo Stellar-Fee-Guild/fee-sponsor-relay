@@ -26,3 +26,6 @@ services:
     volumes:
       - ./secrets/sponsor_secret_key:/run/secrets/sponsor_secret_key:ro
     restart: unless-stopped
+    # The relay waits up to 10s for in-flight requests on SIGTERM; give it a
+    # little longer than that before Docker sends SIGKILL.
+    stop_grace_period: 15s

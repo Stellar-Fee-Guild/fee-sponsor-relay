@@ -244,6 +244,17 @@ appears in `docker inspect` output or the container's environment listing.
 Override any policy/rate-limit variable via a `.env` file next to
 `docker-compose.yml` (see `.env.example`).
 
+### Graceful shutdown
+
+On `SIGTERM` or `SIGINT` (sent by Docker, Kubernetes and most platforms on
+every deploy) the relay stops accepting new connections, lets in-flight
+requests finish, logs `shutdown_started` / `shutdown_complete` and exits
+`0`. If requests are still running after 10 seconds it closes the remaining
+connections, logs `shutdown_timeout` and exits `1`. Make your platform's
+grace period a bit longer than 10 seconds (`stop_grace_period: 15s` is
+already set in `docker-compose.yml`; Kubernetes' default
+`terminationGracePeriodSeconds` of 30 is fine).
+
 ### Bare metal / systemd / PaaS
 
 ```bash
