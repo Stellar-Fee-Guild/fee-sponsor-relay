@@ -95,7 +95,10 @@ Example: `feat/redis-rate-limiter`, `fix/policy-daily-cap-off-by-one`.
 
 ## Reporting bugs / requesting features
 
-Open an issue with:
+**Security vulnerabilities:** don't open a public issue; follow
+[SECURITY.md](SECURITY.md). Never post a sponsor secret key anywhere.
+
+Otherwise, open an issue using the bug report or feature request template, with:
 
 - What you expected to happen vs. what actually happened.
 - Steps to reproduce (for bugs), including relevant config/env vars
