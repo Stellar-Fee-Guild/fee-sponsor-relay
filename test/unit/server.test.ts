@@ -92,6 +92,62 @@ describe('POST /sponsor', () => {
     expect(res.body.reason).toBe('INVALID_TRANSACTION_XDR');
   });
 
+  it('rejects an unsigned inner transaction as INVALID_INNER_TRANSACTION', async () => {
+    const { app } = makeApp();
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      sign: false,
+    });
+
+    const res = await request(app).post('/sponsor').send({ transaction: inner.toXDR() });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ approved: false, reason: 'INVALID_INNER_TRANSACTION' });
+    expect(res.body.detail).toMatch(/not signed/);
+  });
+
+  it('rejects an inner transaction with no operations as INVALID_INNER_TRANSACTION', async () => {
+    const { app } = makeApp();
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      numOperations: 0,
+    });
+
+    const res = await request(app).post('/sponsor').send({ transaction: inner.toXDR() });
+    expect(res.status).toBe(400);
+    expect(res.body.reason).toBe('INVALID_INNER_TRANSACTION');
+  });
+
+  it('rejects an inner transaction signed for a different network', async () => {
+    const { app } = makeApp();
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: Networks.PUBLIC,
+    });
+
+    const res = await request(app).post('/sponsor').send({ transaction: inner.toXDR() });
+    expect(res.status).toBe(400);
+    expect(res.body.reason).toBe('INVALID_INNER_TRANSACTION');
+    expect(res.body.detail).toMatch(/different network/);
+  });
+
+  it('keeps INVALID_TRANSACTION_XDR for a fee-bump passed as the inner transaction', async () => {
+    const { app } = makeApp();
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+    });
+    const first = await request(app).post('/sponsor').send({ transaction: inner.toXDR() });
+    expect(first.status).toBe(200);
+
+    const res = await request(app)
+      .post('/sponsor')
+      .send({ transaction: first.body.feeBumpTransactionXdr });
+    expect(res.status).toBe(400);
+    expect(res.body.reason).toBe('INVALID_TRANSACTION_XDR');
+  });
+
   it('rejects a denylisted source account', async () => {
     const source = Keypair.random();
     const { app } = makeApp({ policy: { denylist: [source.publicKey()] } });

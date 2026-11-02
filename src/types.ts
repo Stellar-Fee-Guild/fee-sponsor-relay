@@ -60,7 +60,7 @@ export interface PolicyEvaluation {
 }
 
 export interface SponsorshipRequest {
-  /** Unsigned inner transaction XDR submitted by the client. */
+  /** Inner transaction XDR submitted by the client, signed by its source account. */
   innerTransactionXdr: TransactionXdr;
   /** Source IP of the requester, used for IP-based rate limiting. */
   sourceIp: string;

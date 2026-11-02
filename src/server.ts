@@ -3,6 +3,7 @@ import type { Logger } from './logger.js';
 import type { PolicyEngine } from './policy.js';
 import type { RateLimiter } from './rateLimiter.js';
 import {
+  InvalidInnerTransactionError,
   InvalidTransactionError,
   parseInnerTransaction,
   requiredBaseFeeStroops,
@@ -65,6 +66,15 @@ export function createServer(deps: ServerDependencies): express.Express {
     try {
       innerTransaction = parseInnerTransaction(transaction, networkPassphrase);
     } catch (err) {
+      if (err instanceof InvalidInnerTransactionError) {
+        return reject(
+          res,
+          logger,
+          { approved: false, reason: 'INVALID_INNER_TRANSACTION', detail: err.message },
+          sourceIp,
+          400,
+        );
+      }
       const detail = err instanceof InvalidTransactionError ? err.message : 'Invalid transaction.';
       return reject(
         res,
