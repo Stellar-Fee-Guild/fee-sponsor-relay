@@ -15,6 +15,7 @@ const NETWORK_PASSPHRASE = Networks.TESTNET;
 
 function makeApp(
   overrides: {
+    maxTxValiditySeconds?: number;
     policy?: Partial<PolicyConfig>;
     rateLimiter?: { perAccountPerMinute: number; perIpPerMinute: number };
   } = {},
@@ -46,6 +47,7 @@ function makeApp(
     logger,
     networkPassphrase: NETWORK_PASSPHRASE,
     sponsorPublicKey: sponsor.publicKey(),
+    maxTxValiditySeconds: overrides.maxTxValiditySeconds,
   });
 
   return { app, sponsor };
@@ -146,6 +148,54 @@ describe('POST /sponsor', () => {
       .send({ transaction: first.body.feeBumpTransactionXdr });
     expect(res.status).toBe(400);
     expect(res.body.reason).toBe('INVALID_TRANSACTION_XDR');
+  });
+
+  it('rejects an inner transaction with no maxTime as INVALID_INNER_TRANSACTION', async () => {
+    const { app } = makeApp();
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      timeoutSeconds: 0,
+    });
+
+    const res = await request(app).post('/sponsor').send({ transaction: inner.toXDR() });
+    expect(res.status).toBe(400);
+    expect(res.body.reason).toBe('INVALID_INNER_TRANSACTION');
+    expect(res.body.detail).toMatch(/maxTime/);
+  });
+
+  it('rejects an inner transaction valid for longer than the configured window', async () => {
+    const { app } = makeApp({ maxTxValiditySeconds: 30 });
+    const inner = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      timeoutSeconds: 60,
+    });
+
+    const res = await request(app).post('/sponsor').send({ transaction: inner.toXDR() });
+    expect(res.status).toBe(400);
+    expect(res.body.reason).toBe('INVALID_INNER_TRANSACTION');
+  });
+
+  it('defaults the validity window to 300 seconds', async () => {
+    const { app } = makeApp();
+    const ok = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      timeoutSeconds: 290,
+    });
+    const tooLong = buildInnerTransaction({
+      sourceKeypair: Keypair.random(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      timeoutSeconds: 400,
+    });
+
+    expect((await request(app).post('/sponsor').send({ transaction: ok.toXDR() })).status).toBe(
+      200,
+    );
+    expect(
+      (await request(app).post('/sponsor').send({ transaction: tooLong.toXDR() })).status,
+    ).toBe(400);
   });
 
   it('rejects a denylisted source account', async () => {

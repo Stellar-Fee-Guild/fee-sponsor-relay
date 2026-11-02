@@ -37,6 +37,11 @@ export interface RelayConfig {
   port: number;
   logLevel: LogLevel;
   policy: PolicyConfig;
+  /**
+   * Furthest in the future (in seconds) an inner transaction's `maxTime` may
+   * be. Bounds how long a sponsored fee bump stays submittable.
+   */
+  maxTxValiditySeconds: number;
   rateLimiter: RateLimiterConfig;
 }
 

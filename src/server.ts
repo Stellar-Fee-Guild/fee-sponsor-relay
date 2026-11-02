@@ -3,6 +3,8 @@ import type { Logger } from './logger.js';
 import type { PolicyEngine } from './policy.js';
 import type { RateLimiter } from './rateLimiter.js';
 import {
+  assertValidityWindow,
+  DEFAULT_MAX_TX_VALIDITY_SECONDS,
   InvalidInnerTransactionError,
   InvalidTransactionError,
   parseInnerTransaction,
@@ -19,10 +21,16 @@ export interface ServerDependencies {
   logger: Logger;
   networkPassphrase: string;
   sponsorPublicKey: string;
+  /**
+   * Furthest in the future an inner transaction's `maxTime` may be, in
+   * seconds. Defaults to `DEFAULT_MAX_TX_VALIDITY_SECONDS` (300).
+   */
+  maxTxValiditySeconds?: number;
 }
 
 export function createServer(deps: ServerDependencies): express.Express {
   const { relay, policy, rateLimiter, logger, networkPassphrase, sponsorPublicKey } = deps;
+  const maxTxValiditySeconds = deps.maxTxValiditySeconds ?? DEFAULT_MAX_TX_VALIDITY_SECONDS;
   const app = express();
   app.use(express.json({ limit: '64kb' }));
 
@@ -65,6 +73,7 @@ export function createServer(deps: ServerDependencies): express.Express {
     let innerTransaction;
     try {
       innerTransaction = parseInnerTransaction(transaction, networkPassphrase);
+      assertValidityWindow(innerTransaction, maxTxValiditySeconds);
     } catch (err) {
       if (err instanceof InvalidInnerTransactionError) {
         return reject(

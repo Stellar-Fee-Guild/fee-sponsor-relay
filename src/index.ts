@@ -26,6 +26,7 @@ function main(): void {
     logger,
     networkPassphrase: config.networkPassphrase,
     sponsorPublicKey: sponsor.publicKey,
+    maxTxValiditySeconds: config.maxTxValiditySeconds,
   });
 
   app.listen(config.port, () => {

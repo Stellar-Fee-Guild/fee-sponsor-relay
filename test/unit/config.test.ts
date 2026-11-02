@@ -12,6 +12,18 @@ describe('loadConfig', () => {
     expect(config.policy.denylist).toEqual([]);
     expect(config.rateLimiter.perAccountPerMinute).toBe(10);
     expect(config.rateLimiter.perIpPerMinute).toBe(30);
+    expect(config.maxTxValiditySeconds).toBe(300);
+  });
+
+  it('parses POLICY_MAX_TX_VALIDITY_SECONDS', () => {
+    const config = loadConfig({ POLICY_MAX_TX_VALIDITY_SECONDS: '60' } as NodeJS.ProcessEnv);
+    expect(config.maxTxValiditySeconds).toBe(60);
+  });
+
+  it('rejects a non-positive POLICY_MAX_TX_VALIDITY_SECONDS', () => {
+    expect(() => loadConfig({ POLICY_MAX_TX_VALIDITY_SECONDS: '0' } as NodeJS.ProcessEnv)).toThrow(
+      /POLICY_MAX_TX_VALIDITY_SECONDS must be a positive integer/,
+    );
   });
 
   it('parses comma-separated allow/deny lists, trimming whitespace', () => {

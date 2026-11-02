@@ -145,6 +145,21 @@ nominal fee field.
 | `POLICY_HOURLY_CAP_STROOPS_PER_ACCOUNT`   | `5000000`     | Max sponsored per source account in any rolling 1-hour window. |
 | `POLICY_DAILY_CAP_STROOPS_PER_ACCOUNT`    | `20000000`    | Max sponsored per source account in any rolling 24-hour window. |
 
+### Policy: transaction validity window
+
+| Variable                          | Default | Description |
+| --------------------------------- | ------- | ----------- |
+| `POLICY_MAX_TX_VALIDITY_SECONDS`  | `300`   | Furthest in the future an inner transaction's `maxTime` may be, in seconds. |
+
+The sponsor's fee-bump signature stays valid for exactly as long as the inner
+transaction's time bounds allow. Without a limit, a client could hold a
+sponsored fee bump and submit it hours or months later, after you've
+tightened the policy or changed budgets, and the sponsor would still pay.
+Inner transactions with no `maxTime`, a `maxTime` of `0` (an infinite
+timeout) or a `maxTime` further out than this are rejected with
+`INVALID_INNER_TRANSACTION`. Clients should build with
+`TransactionBuilder.setTimeout(n)` where `n` is at most this value.
+
 ### Rate limiting
 
 | Variable                             | Default | Description                                   |

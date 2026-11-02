@@ -116,6 +116,46 @@ function baseAccountId(address: string): string {
   return address;
 }
 
+/** Default for `POLICY_MAX_TX_VALIDITY_SECONDS`. */
+export const DEFAULT_MAX_TX_VALIDITY_SECONDS = 300;
+
+/**
+ * Rejects inner transactions that would stay valid for too long.
+ *
+ * The sponsor's fee-bump signature is valid for exactly as long as the inner
+ * transaction's time bounds allow. Without an upper limit, a client (or
+ * anyone who intercepts the response) could hold a sponsored fee bump and
+ * submit it hours or months later, after the operator has tightened policy,
+ * changed the allowlist or rotated budgets, and the sponsor would still pay.
+ * Requiring a near-term `maxTime` bounds that window.
+ *
+ * @param maxValiditySeconds the furthest in the future `maxTime` may be.
+ * @param nowMs the current time, injectable for tests.
+ * @throws {InvalidInnerTransactionError} if `maxTime` is missing, `0`
+ *   (no upper bound), or more than `maxValiditySeconds` from now.
+ */
+export function assertValidityWindow(
+  innerTransaction: Transaction,
+  maxValiditySeconds: number,
+  nowMs: number = Date.now(),
+): void {
+  const maxTime = Number(innerTransaction.timeBounds?.maxTime ?? 0);
+  if (maxTime === 0) {
+    throw new InvalidInnerTransactionError(
+      'Inner transaction has no upper time bound (maxTime). Set a timeout of at most ' +
+        `${maxValiditySeconds} seconds (e.g. TransactionBuilder.setTimeout(${maxValiditySeconds})).`,
+    );
+  }
+
+  const latestAllowed = Math.floor(nowMs / 1000) + maxValiditySeconds;
+  if (maxTime > latestAllowed) {
+    throw new InvalidInnerTransactionError(
+      `Inner transaction maxTime ${maxTime} is more than ${maxValiditySeconds} seconds in the ` +
+        'future. Use a shorter timeout.',
+    );
+  }
+}
+
 /**
  * The minimum per-operation base fee the fee-bump transaction may use,
  * i.e. the inner transaction's own effective fee rate. The Stellar

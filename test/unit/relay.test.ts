@@ -10,6 +10,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 import {
+  assertValidityWindow,
   InvalidInnerTransactionError,
   InvalidTransactionError,
   parseInnerTransaction,
@@ -136,6 +137,47 @@ describe('parseInnerTransaction: inner transaction checks', () => {
 
     expect(() => parseInnerTransaction(build(Networks.PUBLIC).toXDR(), NETWORK_PASSPHRASE)).toThrow(
       InvalidInnerTransactionError,
+    );
+  });
+});
+
+describe('assertValidityWindow', () => {
+  const source = Keypair.random();
+  const build = (opts: { timeoutSeconds?: number; omitTimeBounds?: boolean }) =>
+    buildInnerTransaction({
+      sourceKeypair: source,
+      networkPassphrase: NETWORK_PASSPHRASE,
+      ...opts,
+    });
+
+  it('accepts a maxTime within the window', () => {
+    expect(() => assertValidityWindow(build({ timeoutSeconds: 60 }), 300)).not.toThrow();
+  });
+
+  it('accepts a maxTime exactly at the edge of the window', () => {
+    const tx = build({ timeoutSeconds: 300 });
+    const maxTime = Number(tx.timeBounds?.maxTime);
+    expect(() => assertValidityWindow(tx, 300, (maxTime - 300) * 1000)).not.toThrow();
+    expect(() => assertValidityWindow(tx, 300, (maxTime - 301) * 1000)).toThrow(
+      InvalidInnerTransactionError,
+    );
+  });
+
+  it('rejects a maxTime of 0 (infinite timeout)', () => {
+    expect(() => assertValidityWindow(build({ timeoutSeconds: 0 }), 300)).toThrow(
+      /no upper time bound/,
+    );
+  });
+
+  it('rejects a transaction with no time bounds at all', () => {
+    const tx = build({ omitTimeBounds: true });
+    expect(tx.timeBounds).toBeUndefined();
+    expect(() => assertValidityWindow(tx, 300)).toThrow(InvalidInnerTransactionError);
+  });
+
+  it('rejects a maxTime further in the future than the window', () => {
+    expect(() => assertValidityWindow(build({ timeoutSeconds: 3600 }), 300)).toThrow(
+      /more than 300 seconds in the future/,
     );
   });
 });

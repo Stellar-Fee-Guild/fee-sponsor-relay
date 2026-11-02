@@ -4,7 +4,9 @@ import {
   BASE_FEE,
   Keypair,
   Operation,
+  Transaction,
   TransactionBuilder,
+  xdr,
 } from '@stellar/stellar-sdk';
 
 export interface BuildInnerTransactionOptions {
@@ -14,6 +16,10 @@ export interface BuildInnerTransactionOptions {
   feeStroops?: string;
   numOperations?: number;
   sign?: boolean;
+  /** Passed to `setTimeout`. `0` means no upper time bound (`maxTime: 0`). Default 60. */
+  timeoutSeconds?: number;
+  /** Strip time bounds entirely (no preconditions), so `timeBounds` is undefined. */
+  omitTimeBounds?: boolean;
 }
 
 /**
@@ -28,7 +34,9 @@ export function buildInnerTransaction({
   feeStroops = BASE_FEE,
   numOperations = 1,
   sign = true,
-}: BuildInnerTransactionOptions) {
+  timeoutSeconds = 60,
+  omitTimeBounds = false,
+}: BuildInnerTransactionOptions): Transaction {
   const account = new Account(sourceKeypair.publicKey(), sequence);
   const builder = new TransactionBuilder(account, {
     fee: String(feeStroops),
@@ -45,7 +53,12 @@ export function buildInnerTransaction({
     );
   }
 
-  const transaction = builder.setTimeout(60).build();
+  let transaction = builder.setTimeout(timeoutSeconds).build();
+  if (omitTimeBounds) {
+    const envelope = transaction.toEnvelope();
+    envelope.v1().tx().cond(xdr.Preconditions.precondNone());
+    transaction = new Transaction(envelope, networkPassphrase);
+  }
   if (sign) {
     transaction.sign(sourceKeypair);
   }

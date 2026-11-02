@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_TX_VALIDITY_SECONDS } from './relay.js';
 import type { LogLevel, RelayConfig } from './types.js';
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
@@ -34,6 +35,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
         'POLICY_DAILY_CAP_STROOPS_PER_ACCOUNT',
       ),
     },
+    maxTxValiditySeconds: parsePositiveInt(
+      env.POLICY_MAX_TX_VALIDITY_SECONDS,
+      DEFAULT_MAX_TX_VALIDITY_SECONDS,
+      'POLICY_MAX_TX_VALIDITY_SECONDS',
+    ),
     rateLimiter: {
       perAccountPerMinute: parsePositiveInt(
         env.RATE_LIMIT_PER_ACCOUNT_PER_MINUTE,
