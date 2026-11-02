@@ -46,6 +46,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
     ),
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     corsAllowedOrigins: parseCorsAllowedOrigins(env.CORS_ALLOWED_ORIGINS),
+    skipStartupChecks: parseBoolean(env.SKIP_STARTUP_CHECKS, false, 'SKIP_STARTUP_CHECKS'),
     rateLimiter: {
       perAccountPerMinute: parsePositiveInt(
         env.RATE_LIMIT_PER_ACCOUNT_PER_MINUTE,
@@ -85,6 +86,20 @@ function parsePositiveInt(value: string | undefined, fallback: number, key: stri
     throw new ConfigError(`${key} must be a positive integer, got: "${value}"`);
   }
   return parsed;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean, key: string): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (normalized === 'true' || normalized === '1') {
+    return true;
+  }
+  if (normalized === 'false' || normalized === '0') {
+    return false;
+  }
+  throw new ConfigError(`${key} must be "true" or "false", got: "${value}"`);
 }
 
 function parseLogLevel(value: string | undefined): LogLevel {

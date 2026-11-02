@@ -5,6 +5,7 @@ import { RateLimiter } from './rateLimiter.js';
 import { RelayService } from './relay.js';
 import { createServer } from './server.js';
 import { installGracefulShutdown } from './shutdown.js';
+import { createHorizonProbe, runStartupChecks } from './startupChecks.js';
 import { resolveSponsorSecretKey, SponsorAccountManager } from './sponsor.js';
 
 function main(): void {
@@ -41,6 +42,17 @@ function main(): void {
   });
 
   installGracefulShutdown({ server, logger });
+
+  if (!config.skipStartupChecks) {
+    // Runs in the background and only logs warnings; never blocks or exits.
+    void runStartupChecks({
+      probe: createHorizonProbe(config.horizonUrl),
+      logger,
+      horizonUrl: config.horizonUrl,
+      networkPassphrase: config.networkPassphrase,
+      sponsorPublicKey: sponsor.publicKey,
+    });
+  }
 }
 
 main();

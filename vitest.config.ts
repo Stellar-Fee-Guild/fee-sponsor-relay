@@ -5,6 +5,8 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     include: ['test/**/*.test.ts'],
+    // Never let a test that boots the relay call Horizon at startup.
+    env: { SKIP_STARTUP_CHECKS: 'true' },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],

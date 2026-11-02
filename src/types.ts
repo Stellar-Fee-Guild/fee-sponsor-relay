@@ -47,6 +47,8 @@ export interface RelayConfig {
   trustProxy: TrustProxySetting | undefined;
   /** Origins allowed to call the relay from a browser. Empty disables CORS. */
   corsAllowedOrigins: CorsAllowedOrigins;
+  /** Skip the startup checks against Horizon (used in tests). */
+  skipStartupChecks: boolean;
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';

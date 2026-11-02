@@ -20,6 +20,19 @@ describe('loadConfig', () => {
     expect(config.maxTxValiditySeconds).toBe(300);
     expect(config.trustProxy).toBeUndefined();
     expect(config.corsAllowedOrigins).toEqual([]);
+    expect(config.skipStartupChecks).toBe(false);
+  });
+
+  it('parses SKIP_STARTUP_CHECKS', () => {
+    const parse = (value: string) =>
+      loadConfig({ SKIP_STARTUP_CHECKS: value } as NodeJS.ProcessEnv).skipStartupChecks;
+    expect(parse('true')).toBe(true);
+    expect(parse('TRUE')).toBe(true);
+    expect(parse('1')).toBe(true);
+    expect(parse('false')).toBe(false);
+    expect(parse('0')).toBe(false);
+    expect(parse('')).toBe(false);
+    expect(() => parse('yes please')).toThrow(/SKIP_STARTUP_CHECKS must be "true" or "false"/);
   });
 
   it('parses POLICY_MAX_TX_VALIDITY_SECONDS', () => {

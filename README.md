@@ -126,6 +126,7 @@ Stellar secret seed.
 | `LOG_LEVEL` | `info`  | One of `debug`, `info`, `warn`, `error`.       |
 | `TRUST_PROXY` | (unset) | Express `trust proxy` setting: `true`, a hop count (e.g. `1`), or a comma-separated list of proxy IPs/CIDRs (`loopback`, `linklocal` and `uniquelocal` also work). Unset means don't trust `X-Forwarded-For`. See [Running behind a proxy](#running-behind-a-proxy). |
 | `CORS_ALLOWED_ORIGINS` | (empty) | Origins allowed to call the relay from a browser. Empty sends no CORS headers; `*` allows any origin; otherwise a comma-separated list of exact origins such as `https://app.example.com,http://localhost:5173`. See [Calling the relay from a browser](#calling-the-relay-from-a-browser). |
+| `SKIP_STARTUP_CHECKS` | `false` | Set to `true` to skip the [startup checks](#startup-checks) against Horizon (tests, offline environments). |
 
 ### Policy: allow/deny lists
 
@@ -243,6 +244,21 @@ container and points `SPONSOR_SECRET_KEY_FILE` at it, so the secret never
 appears in `docker inspect` output or the container's environment listing.
 Override any policy/rate-limit variable via a `.env` file next to
 `docker-compose.yml` (see `.env.example`).
+
+### Startup checks
+
+Right after it starts listening, the relay checks its configuration against
+Horizon and logs a `startup_check_failed` warning (it never exits) if:
+
+- Horizon's root endpoint reports a `network_passphrase` different from
+  `NETWORK_PASSPHRASE`. Every sponsored transaction would fail.
+- The sponsor account can't be loaded: it is unfunded, or `HORIZON_URL` /
+  `NETWORK_PASSPHRASE` point at the wrong network.
+- Horizon can't be reached.
+
+When everything checks out it logs `sponsor_account_loaded` (with the
+sponsor's XLM balance) and `startup_checks_passed`. Set
+`SKIP_STARTUP_CHECKS=true` to turn the checks off.
 
 ### Graceful shutdown
 
