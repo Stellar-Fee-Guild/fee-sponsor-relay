@@ -124,6 +124,7 @@ Stellar secret seed.
 | ----------- | ------- | ----------------------------------------------- |
 | `PORT`      | `3000`  | HTTP port the relay listens on.                |
 | `LOG_LEVEL` | `info`  | One of `debug`, `info`, `warn`, `error`.       |
+| `TRUST_PROXY` | (unset) | Express `trust proxy` setting: `true`, a hop count (e.g. `1`), or a comma-separated list of proxy IPs/CIDRs (`loopback`, `linklocal` and `uniquelocal` also work). Unset means don't trust `X-Forwarded-For`. See [Running behind a proxy](#running-behind-a-proxy). |
 
 ### Policy: allow/deny lists
 
@@ -255,6 +256,31 @@ credential: inject it via your platform's secret manager (Kubernetes
 Secret, Vault, AWS Secrets Manager, etc.) mounted as a file, and set
 `SPONSOR_SECRET_KEY_FILE` rather than putting the raw key in an env var if
 your platform lets you avoid it.
+
+### Running behind a proxy
+
+Per-IP rate limiting uses Express's `req.ip`. When the relay runs behind a
+reverse proxy or load balancer (Render, Fly.io, Heroku, a Kubernetes
+ingress, nginx, Cloudflare...), the TCP connection comes from the proxy, so
+without extra configuration **every user shares the proxy's IP and one
+rate-limit bucket**: a single busy client can lock everyone else out.
+
+Set `TRUST_PROXY` so Express reads the client IP from `X-Forwarded-For`:
+
+| Setup | `TRUST_PROXY` |
+| ----- | ------------- |
+| Relay exposed directly (no proxy), including plain `docker compose up` | leave unset |
+| One proxy / load balancer in front (most PaaS platforms) | `1` |
+| Several known hops (e.g. CDN + ingress) | the number of hops, e.g. `2` |
+| Proxies with known private addresses | their IPs/CIDRs, e.g. `10.0.0.0/8` or `uniquelocal` |
+
+Prefer a hop count or an address list over `true`: `true` trusts the
+left-most `X-Forwarded-For` entry, which the client controls unless your
+proxy overwrites the header.
+
+> **Warning:** don't set `TRUST_PROXY` when nothing sits in front of the
+> relay. Clients could then send their own `X-Forwarded-For` header, pick any
+> IP they like, and bypass the per-IP rate limit entirely.
 
 ## Abuse protection
 

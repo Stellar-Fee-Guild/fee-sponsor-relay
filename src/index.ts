@@ -27,6 +27,7 @@ function main(): void {
     networkPassphrase: config.networkPassphrase,
     sponsorPublicKey: sponsor.publicKey,
     maxTxValiditySeconds: config.maxTxValiditySeconds,
+    trustProxy: config.trustProxy,
   });
 
   app.listen(config.port, () => {

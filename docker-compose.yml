@@ -9,6 +9,8 @@ services:
       NETWORK_PASSPHRASE: ${NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}
       PORT: 3000
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Only set when a reverse proxy sits in front of this container.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # Prefer mounting the secret as a file (see the `secrets/` volume
       # below) over passing SPONSOR_SECRET_KEY directly as an env var.
       SPONSOR_SECRET_KEY_FILE: /run/secrets/sponsor_secret_key

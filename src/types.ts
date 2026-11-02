@@ -43,9 +43,19 @@ export interface RelayConfig {
    */
   maxTxValiditySeconds: number;
   rateLimiter: RateLimiterConfig;
+  /** Express `trust proxy` setting, or `undefined` to leave it unset (don't trust). */
+  trustProxy: TrustProxySetting | undefined;
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/**
+ * Value passed to Express's `trust proxy` setting: `true` (trust every hop),
+ * a hop count, or a list of trusted proxy IPs / CIDRs / Express subnet names
+ * (`loopback`, `linklocal`, `uniquelocal`). `undefined` leaves it unset, so
+ * `req.ip` is the TCP peer address.
+ */
+export type TrustProxySetting = boolean | number | string[];
 
 export type SponsorshipRejectionReason =
   | 'DENYLISTED_ACCOUNT'

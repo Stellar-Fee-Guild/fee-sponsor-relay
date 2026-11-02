@@ -12,7 +12,7 @@ import {
   sponsorCostStroops,
   type RelayService,
 } from './relay.js';
-import type { SponsorshipDecision } from './types.js';
+import type { SponsorshipDecision, TrustProxySetting } from './types.js';
 
 export interface ServerDependencies {
   relay: RelayService;
@@ -26,12 +26,21 @@ export interface ServerDependencies {
    * seconds. Defaults to `DEFAULT_MAX_TX_VALIDITY_SECONDS` (300).
    */
   maxTxValiditySeconds?: number;
+  /**
+   * Express `trust proxy` setting. Leave undefined unless the relay runs
+   * behind a reverse proxy or load balancer; otherwise clients can spoof
+   * their IP with `X-Forwarded-For`.
+   */
+  trustProxy?: TrustProxySetting;
 }
 
 export function createServer(deps: ServerDependencies): express.Express {
   const { relay, policy, rateLimiter, logger, networkPassphrase, sponsorPublicKey } = deps;
   const maxTxValiditySeconds = deps.maxTxValiditySeconds ?? DEFAULT_MAX_TX_VALIDITY_SECONDS;
   const app = express();
+  if (deps.trustProxy !== undefined) {
+    app.set('trust proxy', deps.trustProxy);
+  }
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', (_req: Request, res: Response) => {

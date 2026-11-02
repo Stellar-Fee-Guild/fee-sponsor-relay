@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from '../../src/config.js';
+import { ConfigError, loadConfig, parseTrustProxy } from '../../src/config.js';
 
 describe('loadConfig', () => {
   it('applies documented defaults when no env vars are set', () => {
@@ -13,6 +13,7 @@ describe('loadConfig', () => {
     expect(config.rateLimiter.perAccountPerMinute).toBe(10);
     expect(config.rateLimiter.perIpPerMinute).toBe(30);
     expect(config.maxTxValiditySeconds).toBe(300);
+    expect(config.trustProxy).toBeUndefined();
   });
 
   it('parses POLICY_MAX_TX_VALIDITY_SECONDS', () => {
@@ -60,5 +61,45 @@ describe('loadConfig', () => {
   it('accepts a valid LOG_LEVEL case-insensitively', () => {
     const config = loadConfig({ LOG_LEVEL: 'WARN' } as NodeJS.ProcessEnv);
     expect(config.logLevel).toBe('warn');
+  });
+});
+
+describe('TRUST_PROXY', () => {
+  it('is undefined (do not trust) when unset or blank', () => {
+    expect(parseTrustProxy(undefined)).toBeUndefined();
+    expect(parseTrustProxy('   ')).toBeUndefined();
+  });
+
+  it('parses true / false case-insensitively', () => {
+    expect(parseTrustProxy('true')).toBe(true);
+    expect(parseTrustProxy('TRUE')).toBe(true);
+    expect(parseTrustProxy('false')).toBe(false);
+  });
+
+  it('parses a hop count', () => {
+    expect(parseTrustProxy('1')).toBe(1);
+    expect(parseTrustProxy('0')).toBe(0);
+  });
+
+  it('parses a comma-separated list of IPs, CIDRs and subnet names', () => {
+    expect(parseTrustProxy('10.0.0.1, 10.0.0.0/8 ,fd00::/8,::1,loopback')).toEqual([
+      '10.0.0.1',
+      '10.0.0.0/8',
+      'fd00::/8',
+      '::1',
+      'loopback',
+    ]);
+  });
+
+  it.each(['yes', '10.0.0.0/33', 'fd00::/129', '10.0.0.1/abc', '10.0.0.1/8/8', '1.2.3', '-1'])(
+    'rejects invalid value %s with a ConfigError naming TRUST_PROXY',
+    (value) => {
+      expect(() => parseTrustProxy(value)).toThrow(ConfigError);
+      expect(() => parseTrustProxy(value)).toThrow(/TRUST_PROXY/);
+    },
+  );
+
+  it('is wired through loadConfig', () => {
+    expect(loadConfig({ TRUST_PROXY: '2' } as NodeJS.ProcessEnv).trustProxy).toBe(2);
   });
 });

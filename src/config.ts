@@ -1,7 +1,11 @@
 import { DEFAULT_MAX_TX_VALIDITY_SECONDS } from './relay.js';
-import type { LogLevel, RelayConfig } from './types.js';
+import { isIP } from 'node:net';
+import type { LogLevel, RelayConfig, TrustProxySetting } from './types.js';
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+
+/** Subnet names Express's `trust proxy` setting understands in addition to IPs and CIDRs. */
+const TRUST_PROXY_NAMES = ['loopback', 'linklocal', 'uniquelocal'];
 
 export class ConfigError extends Error {}
 
@@ -40,6 +44,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
       DEFAULT_MAX_TX_VALIDITY_SECONDS,
       'POLICY_MAX_TX_VALIDITY_SECONDS',
     ),
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
     rateLimiter: {
       perAccountPerMinute: parsePositiveInt(
         env.RATE_LIMIT_PER_ACCOUNT_PER_MINUTE,
@@ -90,4 +95,57 @@ function parseLogLevel(value: string | undefined): LogLevel {
     throw new ConfigError(`LOG_LEVEL must be one of ${LOG_LEVELS.join(', ')}, got: "${value}"`);
   }
   return normalized as LogLevel;
+}
+
+/**
+ * Parses `TRUST_PROXY` into a value for Express's `trust proxy` setting.
+ * Unset or empty means "don't trust any proxy" (Express's default).
+ */
+export function parseTrustProxy(value: string | undefined): TrustProxySetting | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === 'true') {
+    return true;
+  }
+  if (lower === 'false') {
+    return false;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+
+  const entries = parseList(trimmed);
+  for (const entry of entries) {
+    if (!isTrustProxyEntry(entry)) {
+      throw new ConfigError(
+        'TRUST_PROXY must be "true", a hop count, or a comma-separated list of IPs, CIDRs ' +
+          `or ${TRUST_PROXY_NAMES.join('/')}; invalid entry: "${entry}"`,
+      );
+    }
+  }
+  return entries;
+}
+
+function isTrustProxyEntry(entry: string): boolean {
+  if (TRUST_PROXY_NAMES.includes(entry)) {
+    return true;
+  }
+  const [address, prefix, ...rest] = entry.split('/');
+  if (rest.length > 0 || address === undefined) {
+    return false;
+  }
+  const family = isIP(address);
+  if (family === 0) {
+    return false;
+  }
+  if (prefix === undefined) {
+    return true;
+  }
+  if (!/^\d+$/.test(prefix)) {
+    return false;
+  }
+  return Number(prefix) <= (family === 4 ? 32 : 128);
 }

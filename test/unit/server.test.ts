@@ -8,7 +8,7 @@ import { RateLimiter } from '../../src/rateLimiter.js';
 import { RelayService } from '../../src/relay.js';
 import { createServer } from '../../src/server.js';
 import { SponsorAccountManager } from '../../src/sponsor.js';
-import type { PolicyConfig } from '../../src/types.js';
+import type { PolicyConfig, TrustProxySetting } from '../../src/types.js';
 import { buildInnerTransaction } from '../helpers/buildInnerTransaction.js';
 
 const NETWORK_PASSPHRASE = Networks.TESTNET;
@@ -16,6 +16,7 @@ const NETWORK_PASSPHRASE = Networks.TESTNET;
 function makeApp(
   overrides: {
     maxTxValiditySeconds?: number;
+    trustProxy?: TrustProxySetting;
     policy?: Partial<PolicyConfig>;
     rateLimiter?: { perAccountPerMinute: number; perIpPerMinute: number };
   } = {},
@@ -48,6 +49,7 @@ function makeApp(
     networkPassphrase: NETWORK_PASSPHRASE,
     sponsorPublicKey: sponsor.publicKey(),
     maxTxValiditySeconds: overrides.maxTxValiditySeconds,
+    trustProxy: overrides.trustProxy,
   });
 
   return { app, sponsor };
@@ -265,5 +267,40 @@ describe('POST /sponsor', () => {
     const res2 = await request(app).post('/sponsor').send({ transaction: second.toXDR() });
     expect(res2.status).toBe(429);
     expect(res2.body.reason).toBe('IP_RATE_LIMITED');
+  });
+});
+
+describe('trust proxy', () => {
+  const ipLimited = { perAccountPerMinute: 100, perIpPerMinute: 1 };
+  const sponsorFrom = (app: Express, forwardedFor: string) =>
+    request(app)
+      .post('/sponsor')
+      .set('X-Forwarded-For', forwardedFor)
+      .send({
+        transaction: buildInnerTransaction({
+          sourceKeypair: Keypair.random(),
+          networkPassphrase: NETWORK_PASSPHRASE,
+        }).toXDR(),
+      });
+
+  it('ignores X-Forwarded-For by default, so clients cannot spoof their IP', async () => {
+    const { app } = makeApp({ rateLimiter: ipLimited });
+    expect((await sponsorFrom(app, '203.0.113.1')).status).toBe(200);
+    const res = await sponsorFrom(app, '203.0.113.2');
+    expect(res.status).toBe(429);
+    expect(res.body.reason).toBe('IP_RATE_LIMITED');
+  });
+
+  it('rate limits by the forwarded client IP when trustProxy is a hop count', async () => {
+    const { app } = makeApp({ rateLimiter: ipLimited, trustProxy: 1 });
+    expect((await sponsorFrom(app, '203.0.113.1')).status).toBe(200);
+    expect((await sponsorFrom(app, '203.0.113.2')).status).toBe(200);
+    expect((await sponsorFrom(app, '203.0.113.1')).status).toBe(429);
+  });
+
+  it('accepts a list of trusted proxy addresses', async () => {
+    const { app } = makeApp({ rateLimiter: ipLimited, trustProxy: ['loopback'] });
+    expect((await sponsorFrom(app, '203.0.113.1')).status).toBe(200);
+    expect((await sponsorFrom(app, '203.0.113.2')).status).toBe(200);
   });
 });
